@@ -1,12 +1,13 @@
-﻿using CsvHelper;
-using CsvHelper.Configuration;
-using CsvUserParser.Models;
-using System;
-using System.Collections.Generic;
-using System.Globalization;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using CsvHelper;
+using CsvHelper.Configuration;
+using CsvUserParser.Models;
 
 namespace CsvUserParser
 {
@@ -17,7 +18,7 @@ namespace CsvUserParser
 
         public CsvUsersParser(Dictionary<string, string> columnMaps)
         {
-            _map = new ReadUserModelMap(columnMaps);
+            _map = new ConfigurableClassMap<UserFileModel>(columnMaps);
             _configuration = new CsvConfiguration(CultureInfo.InvariantCulture) { HasHeaderRecord = true };
         }
 
@@ -54,27 +55,23 @@ namespace CsvUserParser
                 return users;
             }
         }
-        public class ReadUserModelMap : ClassMap<UserFileModel>
-        {
-            private readonly string[] _requiredFields = new string[] {
-                nameof(UserFileModel.ForeignID),
-                nameof(UserFileModel.Email)
-            };
 
-            public ReadUserModelMap(Dictionary<string, string> columnMaps)
+        public class ConfigurableClassMap<T> : ClassMap<T>
+        {
+            public ConfigurableClassMap(Dictionary<string, string> overriddenPropertyMaps)
             {
-                var modelType = typeof(UserFileModel);
+                var modelType = typeof(T);
                 var properties = modelType.GetProperties();
 
-                if(IsInvalidColumnMaps(properties, columnMaps, out string invalidPropertyName))
+                if (IsInvalidPropertyMaps(properties, overriddenPropertyMaps, out string invalidPropertyName))
                 {
-                    throw new Exception($"Invalid column map. Entity '{modelType.Name}' doesn't have a property with name - '{invalidPropertyName}'");
+                    throw new Exception($"Invalid property map. Entity '{modelType.Name}' doesn't have a property with name - '{invalidPropertyName}'");
                 }
 
                 foreach (var property in properties)
                 {
                     var map = Map(modelType, property);
-                    if (columnMaps.TryGetValue(property.Name, out string headerName))
+                    if (overriddenPropertyMaps.TryGetValue(property.Name, out string headerName))
                     {
                         map.Name(headerName);
                     }
@@ -83,21 +80,22 @@ namespace CsvUserParser
                         map.Name(property.Name);
                     }
 
-                    if (!_requiredFields.Contains(property.Name))
+                    object[] attrs = property.GetCustomAttributes(typeof(RequiredAttribute), false);
+                    if (attrs.Length == 0)
                     {
                         map.Optional();
                     }
                 }
             }
 
-            private bool IsInvalidColumnMaps(
-                PropertyInfo[] properties, 
-                Dictionary<string, string> columnMaps, 
+            private bool IsInvalidPropertyMaps(
+                PropertyInfo[] properties,
+                Dictionary<string, string> overriddenPropertyMaps,
                 out string invalidPropertyName)
             {
-                foreach (var propertyName in columnMaps.Keys)
+                foreach (var propertyName in overriddenPropertyMaps.Keys)
                 {
-                    if(!properties.Any(p => p.Name == propertyName))
+                    if (!properties.Any(p => p.Name == propertyName))
                     {
                         invalidPropertyName = propertyName;
                         return true;
